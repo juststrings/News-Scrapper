@@ -171,25 +171,32 @@ def classify_message_intent(message: Dict[str, Any]) -> str:
     if lower.startswith("/help"):
         return "help"
 
+    refresh_markers = (
+        "refresh",
+        "latest news",
+        "latest",
+        "lastest",
+        "news update",
+        "current news",
+        "today's news",
+        "today news",
+        "what's new",
+        "what is new",
+        "send news",
+        "send the latest",
+        "show news",
+        "give me news",
+        "briefing",
+        "headlines",
+        "latest briefing",
+    )
+
     if any(
-        phrase in lower
-        for phrase in (
-            "refresh",
-            "latest news",
-            "news update",
-            "current news",
-            "today's news",
-            "today news",
-            "what's new",
-            "what is new",
-            "send news",
-            "show news",
-            "give me news",
-            "briefing",
-            "headlines",
-            "latest briefing",
-        )
+        phrase in lower for phrase in refresh_markers
     ):
+        return "refresh"
+
+    if "news" in lower or "briefing" in lower:
         return "refresh"
 
     return "help"
