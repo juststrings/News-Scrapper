@@ -64,6 +64,51 @@ TELEGRAM_HELP_MESSAGE = (
     "ℹ️ *Nigerian Content Briefing — Help*\n\n"
     "I deliver AI-scored content briefings from Nigerian news, Reddit and X/Twitter, built for content creators looking for reaction-video ideas.\n\n"
     "📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message"
+    "\n\nYou can also say things like 'latest news', 'send the latest', 'more', 'again', or 'go back'."
+)
+
+REFRESH_MARKERS = (
+    "refresh",
+    "latest news",
+    "latest",
+    "lastest",
+    "news update",
+    "current news",
+    "today's news",
+    "today news",
+    "what's new",
+    "what is new",
+    "send news",
+    "send the latest",
+    "show news",
+    "give me news",
+    "briefing",
+    "headlines",
+    "latest briefing",
+)
+
+REPEAT_MARKERS = (
+    "go back",
+    "back",
+    "previous",
+    "repeat that",
+    "show that again",
+    "same again",
+    "the last one",
+    "last one",
+    "repeat",
+)
+
+FOLLOW_UP_REFRESH_MARKERS = (
+    "more",
+    "another",
+    "another one",
+    "next",
+    "send more",
+    "more news",
+    "more updates",
+    "more please",
+    "latest",
 )
 
 
@@ -77,6 +122,17 @@ def ensure_db() -> sqlite3.Connection:
             username TEXT,
             status TEXT,
             subscribed_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversation_memory (
+            chat_id TEXT PRIMARY KEY,
+            last_user_text TEXT,
+            last_intent TEXT,
+            last_news_messages TEXT,
+            updated_at TEXT
         )
         """
     )
@@ -121,6 +177,62 @@ def get_active_subscribers() -> List[Dict[str, str]]:
     ]
 
 
+def get_conversation_memory(chat_id: str) -> Dict[str, Any]:
+    cursor = DB_CONN.cursor()
+    cursor.execute(
+        "SELECT last_user_text, last_intent, last_news_messages, updated_at FROM conversation_memory WHERE chat_id = ?",
+        (chat_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return {
+            "last_user_text": "",
+            "last_intent": "",
+            "last_news_messages": [],
+            "updated_at": "",
+        }
+
+    last_news_messages: List[str] = []
+    raw_news_messages = row[2] or ""
+    if raw_news_messages:
+        try:
+            parsed_messages = json.loads(raw_news_messages)
+            if isinstance(parsed_messages, list):
+                last_news_messages = [str(message) for message in parsed_messages if str(message).strip()]
+        except json.JSONDecodeError:
+            last_news_messages = []
+
+    return {
+        "last_user_text": row[0] or "",
+        "last_intent": row[1] or "",
+        "last_news_messages": last_news_messages,
+        "updated_at": row[3] or "",
+    }
+
+
+def save_conversation_memory(
+    chat_id: str,
+    last_user_text: str,
+    last_intent: str,
+    last_news_messages: Optional[List[str]] = None,
+) -> None:
+    updated_at = datetime.datetime.utcnow().isoformat() + "Z"
+    payload = json.dumps(last_news_messages or [])
+    DB_CONN.execute(
+        """
+        INSERT INTO conversation_memory (chat_id, last_user_text, last_intent, last_news_messages, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET
+            last_user_text=excluded.last_user_text,
+            last_intent=excluded.last_intent,
+            last_news_messages=excluded.last_news_messages,
+            updated_at=excluded.updated_at
+        """,
+        (chat_id, last_user_text, last_intent, payload, updated_at),
+    )
+    DB_CONN.commit()
+
+
 def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown") -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
@@ -138,9 +250,13 @@ def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown")
         response.raise_for_status()
 
 
-def classify_message_intent(message: Dict[str, Any]) -> str:
+def normalize_text(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def classify_message_intent(message: Dict[str, Any], memory: Dict[str, Any]) -> str:
     text = str(message.get("text", "")).strip()
-    lower = text.lower()
+    lower = normalize_text(text)
 
     if not lower:
         return "help"
@@ -171,29 +287,17 @@ def classify_message_intent(message: Dict[str, Any]) -> str:
     if lower.startswith("/help"):
         return "help"
 
-    refresh_markers = (
-        "refresh",
-        "latest news",
-        "latest",
-        "lastest",
-        "news update",
-        "current news",
-        "today's news",
-        "today news",
-        "what's new",
-        "what is new",
-        "send news",
-        "send the latest",
-        "show news",
-        "give me news",
-        "briefing",
-        "headlines",
-        "latest briefing",
-    )
+    if any(phrase in lower for phrase in REPEAT_MARKERS):
+        if memory.get("last_news_messages"):
+            return "repeat_last"
+        return "refresh"
 
-    if any(
-        phrase in lower for phrase in refresh_markers
-    ):
+    if any(phrase in lower for phrase in REFRESH_MARKERS):
+        return "refresh"
+
+    if any(phrase in lower for phrase in FOLLOW_UP_REFRESH_MARKERS):
+        if memory.get("last_intent") in {"refresh", "repeat_last"}:
+            return "refresh"
         return "refresh"
 
     if "news" in lower or "briefing" in lower:
@@ -202,17 +306,34 @@ def classify_message_intent(message: Dict[str, Any]) -> str:
     return "help"
 
 
-def build_news_refresh_message(messages: List[str]) -> str:
-    if not messages:
-        return "No fresh news items were found right now. Please try again later."
-
-    return "\n\n".join(messages)
-
-
-def send_latest_news(chat_id: str) -> None:
+def send_latest_news(chat_id: str, user_text: str = "") -> List[str]:
     logging.info("Sending latest news refresh to %s", chat_id)
     messages = generate_briefing_messages()
-    send_telegram_message(chat_id, build_news_refresh_message(messages))
+    if not messages:
+        send_telegram_message(chat_id, "No fresh news items were found right now. Please try again later.")
+        save_conversation_memory(chat_id, user_text, "refresh", [])
+        return []
+
+    for text in messages:
+        send_telegram_message(chat_id, text)
+        time.sleep(1)
+
+    save_conversation_memory(chat_id, user_text, "refresh", messages)
+    return messages
+
+
+def repeat_last_news(chat_id: str, user_text: str, memory: Dict[str, Any]) -> None:
+    last_messages = [str(message) for message in memory.get("last_news_messages", []) if str(message).strip()]
+    if not last_messages:
+        send_latest_news(chat_id, user_text=user_text)
+        return
+
+    logging.info("Repeating last news bundle for %s", chat_id)
+    for text in last_messages:
+        send_telegram_message(chat_id, text)
+        time.sleep(1)
+
+    save_conversation_memory(chat_id, user_text, "repeat_last", last_messages)
 
 
 def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
@@ -226,28 +347,38 @@ def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
     if not chat_id:
         return {"status": "invalid"}
 
-    command = classify_message_intent(message)
+    memory = get_conversation_memory(chat_id)
+    command = classify_message_intent(message, memory)
+    user_text = str(message.get("text", "")).strip()
     first_name = str(sender.get("first_name") or chat.get("first_name") or "")
     username = str(sender.get("username") or chat.get("username") or "")
 
     if command == "start":
         upsert_subscriber(chat_id, first_name, username, "active")
+        save_conversation_memory(chat_id, user_text, "start", memory.get("last_news_messages", []))
         send_telegram_message(chat_id, TELEGRAM_SUBSCRIBE_MESSAGE)
         return {"status": "subscribed"}
 
     if command == "stop":
         upsert_subscriber(chat_id, first_name, username, "unsubscribed")
+        save_conversation_memory(chat_id, user_text, "stop", memory.get("last_news_messages", []))
         send_telegram_message(chat_id, TELEGRAM_UNSUBSCRIBE_MESSAGE)
         return {"status": "unsubscribed"}
 
     if command == "help":
+        save_conversation_memory(chat_id, user_text, "help", memory.get("last_news_messages", []))
         send_telegram_message(chat_id, TELEGRAM_HELP_MESSAGE)
         return {"status": "help_sent"}
 
     if command == "refresh":
-        send_latest_news(chat_id)
+        send_latest_news(chat_id, user_text=user_text)
         return {"status": "refreshed"}
 
+    if command == "repeat_last":
+        repeat_last_news(chat_id, user_text, memory)
+        return {"status": "repeated"}
+
+    save_conversation_memory(chat_id, user_text, "help", memory.get("last_news_messages", []))
     send_telegram_message(chat_id, TELEGRAM_HELP_MESSAGE)
     return {"status": "help_sent"}
 
