@@ -192,6 +192,14 @@ def ensure_db() -> sqlite3.Connection:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS seen_items (
+            link TEXT PRIMARY KEY,
+            seen_at TEXT
+        )
+        """
+    )
     conn.commit()
     return conn
 
@@ -231,6 +239,26 @@ def get_active_subscribers() -> List[Dict[str, str]]:
         }
         for row in cursor.fetchall()
     ]
+
+
+def is_item_seen(link: str) -> bool:
+    if not link:
+        return False
+    cursor = DB_CONN.cursor()
+    cursor.execute("SELECT 1 FROM seen_items WHERE link = ?", (link,))
+    return cursor.fetchone() is not None
+
+
+def mark_items_seen(links: List[str]) -> None:
+    seen_at = datetime.datetime.utcnow().isoformat() + "Z"
+    for link in links:
+        if not link:
+            continue
+        DB_CONN.execute(
+            "INSERT OR IGNORE INTO seen_items (link, seen_at) VALUES (?, ?)",
+            (link, seen_at),
+        )
+    DB_CONN.commit()
 
 
 def get_conversation_memory(chat_id: str) -> Dict[str, Any]:
@@ -864,7 +892,8 @@ def generate_briefing() -> Dict[str, Any]:
 
     normalized = [normalize_item(item) for item in items]
     unique_items = remove_duplicates(normalized)
-    sorted_items = sort_items(unique_items)
+    unseen_items = [item for item in unique_items if not is_item_seen(item.get("link", ""))]
+    sorted_items = sort_items(unseen_items)
     top_items = limit_top_items(sorted_items, max_items=10)
 
     details = []
@@ -878,6 +907,7 @@ def generate_briefing() -> Dict[str, Any]:
         details.append(build_briefing_message(item, ai_brief))
         digest_entries.append({"item": item, "score": extract_viral_score(ai_brief)})
 
+    mark_items_seen([item.get("link", "") for item in top_items])
     return {"digest": build_digest_message(digest_entries), "details": details}
 
 
