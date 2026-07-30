@@ -63,7 +63,7 @@ TELEGRAM_UNSUBSCRIBE_MESSAGE = (
 TELEGRAM_HELP_MESSAGE = (
     "ℹ️ *Nigerian Content Briefing — Help*\n\n"
     "I deliver AI-scored content briefings from Nigerian news, Reddit and X/Twitter, built for content creators looking for reaction-video ideas.\n\n"
-    "📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message"
+    "📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message\n/refresh — fetch the latest news\n/fetch — same as /refresh"
     "\n\nYou can also say things like 'latest news', 'send the latest', 'more', 'again', or 'go back'."
 )
 
@@ -110,6 +110,18 @@ FOLLOW_UP_REFRESH_MARKERS = (
     "more please",
     "latest",
 )
+
+
+def build_command_keyboard() -> Dict[str, Any]:
+    return {
+        "keyboard": [
+            [{"text": "/refresh"}, {"text": "/fetch"}],
+            [{"text": "/help"}, {"text": "/start"}],
+        ],
+        "resize_keyboard": True,
+        "one_time_keyboard": False,
+        "selective": True,
+    }
 
 
 def ensure_db() -> sqlite3.Connection:
@@ -250,6 +262,24 @@ def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown")
         response.raise_for_status()
 
 
+def send_telegram_message_with_keyboard(chat_id: str, text: str, parse_mode: str = "Markdown") -> None:
+    if not TELEGRAM_BOT_TOKEN:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
+
+    url = urljoin(TELEGRAM_API_BASE, "sendMessage")
+    payload = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": False,
+        "reply_markup": build_command_keyboard(),
+    }
+    response = SESSION.post(url, json=payload, timeout=15)
+    if response.status_code != 200:
+        logging.error("Telegram sendMessage failed %s: %s", response.status_code, response.text)
+        response.raise_for_status()
+
+
 def normalize_text(text: str) -> str:
     return " ".join(text.lower().split())
 
@@ -286,6 +316,9 @@ def classify_message_intent(message: Dict[str, Any], memory: Dict[str, Any]) -> 
 
     if lower.startswith("/help"):
         return "help"
+
+    if lower.startswith("/refresh") or lower.startswith("/fetch"):
+        return "refresh"
 
     if any(phrase in lower for phrase in REPEAT_MARKERS):
         if memory.get("last_news_messages"):
@@ -356,18 +389,18 @@ def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
     if command == "start":
         upsert_subscriber(chat_id, first_name, username, "active")
         save_conversation_memory(chat_id, user_text, "start", memory.get("last_news_messages", []))
-        send_telegram_message(chat_id, TELEGRAM_SUBSCRIBE_MESSAGE)
+        send_telegram_message_with_keyboard(chat_id, TELEGRAM_SUBSCRIBE_MESSAGE)
         return {"status": "subscribed"}
 
     if command == "stop":
         upsert_subscriber(chat_id, first_name, username, "unsubscribed")
         save_conversation_memory(chat_id, user_text, "stop", memory.get("last_news_messages", []))
-        send_telegram_message(chat_id, TELEGRAM_UNSUBSCRIBE_MESSAGE)
+        send_telegram_message_with_keyboard(chat_id, TELEGRAM_UNSUBSCRIBE_MESSAGE)
         return {"status": "unsubscribed"}
 
     if command == "help":
         save_conversation_memory(chat_id, user_text, "help", memory.get("last_news_messages", []))
-        send_telegram_message(chat_id, TELEGRAM_HELP_MESSAGE)
+        send_telegram_message_with_keyboard(chat_id, TELEGRAM_HELP_MESSAGE)
         return {"status": "help_sent"}
 
     if command == "refresh":
@@ -379,7 +412,7 @@ def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "repeated"}
 
     save_conversation_memory(chat_id, user_text, "help", memory.get("last_news_messages", []))
-    send_telegram_message(chat_id, TELEGRAM_HELP_MESSAGE)
+    send_telegram_message_with_keyboard(chat_id, TELEGRAM_HELP_MESSAGE)
     return {"status": "help_sent"}
 
 
