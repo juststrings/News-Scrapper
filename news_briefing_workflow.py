@@ -24,7 +24,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 APIFY_BEARER_TOKEN = os.getenv("APIFY_BEARER_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 USER_AGENT = "news-briefing-workflow/1.0"
