@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sqlite3
+import threading
 import time
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
@@ -359,6 +360,43 @@ def send_telegram_message_with_keyboard(chat_id: str, text: str, parse_mode: str
     )
 
 
+def send_chat_action(chat_id: str, action: str = "typing") -> None:
+    if not TELEGRAM_BOT_TOKEN:
+        return
+    url = urljoin(TELEGRAM_API_BASE, "sendChatAction")
+    try:
+        SESSION.post(url, json={"chat_id": chat_id, "action": action}, timeout=10)
+    except Exception:
+        logging.exception("Failed to send chat action to %s", chat_id)
+
+
+class TypingIndicator:
+    """Keeps Telegram's "typing..." indicator alive for the duration of a `with` block.
+
+    Telegram clears the indicator after ~5s, so it needs to be re-sent
+    periodically for operations that take longer (RSS/Groq fetches).
+    """
+
+    def __init__(self, chat_id: str, interval: float = 4.0) -> None:
+        self.chat_id = chat_id
+        self.interval = interval
+        self._stop_event = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            send_chat_action(self.chat_id, "typing")
+            self._stop_event.wait(self.interval)
+
+    def __enter__(self) -> "TypingIndicator":
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self._stop_event.set()
+        self._thread.join(timeout=1)
+
+
 def normalize_text(text: str) -> str:
     return " ".join(text.lower().split())
 
@@ -423,7 +461,8 @@ def classify_message_intent(message: Dict[str, Any], memory: Dict[str, Any]) -> 
 
 def send_latest_news(chat_id: str, user_text: str = "") -> List[str]:
     logging.info("Sending latest news refresh to %s", chat_id)
-    briefing = generate_briefing()
+    with TypingIndicator(chat_id):
+        briefing = generate_briefing()
     digest = briefing["digest"]
     if not digest:
         send_telegram_message(chat_id, "No fresh news items were found right now. Please try again later.")
