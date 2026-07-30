@@ -62,7 +62,8 @@ X_SEARCH_QUERY = os.getenv("X_SEARCH_QUERY", '"Nigeria" min_faves:50 -filter:rep
 
 X_DDG_SEARCH_QUERY = os.getenv(
     "X_DDG_SEARCH_QUERY",
-    '(Nigeria OR Nigerian) (politics OR trending OR reacts OR breaking) (site:twitter.com OR site:x.com)',
+    '(Nigeria OR Nigerian) (Tinubu OR APC OR PDP OR INEC OR EFCC OR "National Assembly" OR Naira OR ASUU) '
+    '(site:twitter.com OR site:x.com)',
 )
 
 TELEGRAM_SUBSCRIBE_MESSAGE = (
