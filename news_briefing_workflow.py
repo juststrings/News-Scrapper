@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 from email.utils import parsedate_to_datetime
@@ -51,9 +52,10 @@ APIFY_X_SCRAPER_URL = (
 
 TELEGRAM_SUBSCRIBE_MESSAGE = (
     "👋 *Welcome to the Nigerian Content Briefing!*\n\n"
-    "You're now subscribed. Every few hours I scan Nigerian news (Punch, Premium Times, Vanguard, Daily Post), Reddit (r/Nigeria, r/NigeriaTech) and X/Twitter, then send you AI-scored *content briefings* — each with a viral score, a summary, community sentiment, and 2 ready-to-use video reaction hooks.\n\n"
+    "You're now subscribed. Every few hours I scan Nigerian news (Punch, Premium Times, Vanguard, Daily Post), Reddit (r/Nigeria, r/NigeriaTech) and X/Twitter, then send you a numbered *digest* of the top stories with viral scores.\n\n"
+    "Reply with a story number (e.g. \"3\") or \"more on 3\" any time to get that story's full AI brief — summary, community sentiment, and 2 ready-to-use video reaction hooks.\n\n"
     "📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message again\n\n"
-    "Sit tight — your first briefing will arrive on the next scheduled run. 🔥"
+    "Sit tight — your first digest will arrive on the next scheduled run. 🔥"
 )
 
 TELEGRAM_UNSUBSCRIBE_MESSAGE = (
@@ -65,7 +67,41 @@ TELEGRAM_HELP_MESSAGE = (
     "I deliver AI-scored content briefings from Nigerian news, Reddit and X/Twitter, built for content creators looking for reaction-video ideas.\n\n"
     "📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message\n/refresh — fetch the latest news\n/fetch — same as /refresh"
     "\n\nYou can also say things like 'latest news', 'send the latest', 'more', 'again', or 'go back'."
+    "\n\nAfter a digest arrives, reply with a story number (e.g. \"3\") or \"more on 3\" to get that story's full brief."
 )
+
+DETAIL_INTENT_MARKERS = (
+    "detail",
+    "details",
+    "more on",
+    "more about",
+    "tell me more",
+    "expand",
+    "full brief",
+    "full story",
+    "elaborate",
+    "item",
+    "number",
+    "story",
+)
+
+
+def extract_detail_index(text: str) -> Optional[int]:
+    lower = text.strip().lower()
+    if not lower:
+        return None
+
+    if lower.isdigit():
+        value = int(lower)
+        return value if 1 <= value <= 10 else None
+
+    if any(marker in lower for marker in DETAIL_INTENT_MARKERS):
+        match = re.search(r"\d{1,2}", lower)
+        if match:
+            value = int(match.group())
+            return value if 1 <= value <= 10 else None
+
+    return None
 
 REFRESH_MARKERS = (
     "refresh",
@@ -324,6 +360,9 @@ def classify_message_intent(message: Dict[str, Any], memory: Dict[str, Any]) -> 
     if lower.startswith("/help"):
         return "help"
 
+    if len(memory.get("last_news_messages", [])) > 1 and extract_detail_index(text) is not None:
+        return "detail"
+
     if lower.startswith("/refresh") or lower.startswith("/fetch"):
         return "refresh"
 
@@ -348,21 +387,21 @@ def classify_message_intent(message: Dict[str, Any], memory: Dict[str, Any]) -> 
 
 def send_latest_news(chat_id: str, user_text: str = "") -> List[str]:
     logging.info("Sending latest news refresh to %s", chat_id)
-    messages = generate_briefing_messages()
-    if not messages:
+    briefing = generate_briefing()
+    digest = briefing["digest"]
+    if not digest:
         send_telegram_message(chat_id, "No fresh news items were found right now. Please try again later.")
         save_conversation_memory(chat_id, user_text, "refresh", [])
         return []
 
-    for text in messages:
-        try:
-            send_telegram_message(chat_id, text)
-        except Exception:
-            logging.exception("Failed to send briefing message to %s", chat_id)
-        time.sleep(1)
+    try:
+        send_telegram_message(chat_id, digest)
+    except Exception:
+        logging.exception("Failed to send digest message to %s", chat_id)
 
-    save_conversation_memory(chat_id, user_text, "refresh", messages)
-    return messages
+    combined = [digest] + briefing["details"]
+    save_conversation_memory(chat_id, user_text, "digest", combined)
+    return combined
 
 
 def repeat_last_news(chat_id: str, user_text: str, memory: Dict[str, Any]) -> None:
@@ -371,15 +410,26 @@ def repeat_last_news(chat_id: str, user_text: str, memory: Dict[str, Any]) -> No
         send_latest_news(chat_id, user_text=user_text)
         return
 
-    logging.info("Repeating last news bundle for %s", chat_id)
-    for text in last_messages:
-        try:
-            send_telegram_message(chat_id, text)
-        except Exception:
-            logging.exception("Failed to resend briefing message to %s", chat_id)
-        time.sleep(1)
+    logging.info("Repeating last digest for %s", chat_id)
+    try:
+        send_telegram_message(chat_id, last_messages[0])
+    except Exception:
+        logging.exception("Failed to resend digest to %s", chat_id)
 
-    save_conversation_memory(chat_id, user_text, "repeat_last", last_messages)
+    save_conversation_memory(chat_id, user_text, "digest", last_messages)
+
+
+def send_story_detail(chat_id: str, index: Optional[int], memory: Dict[str, Any]) -> None:
+    messages = memory.get("last_news_messages", [])
+    if not index or index >= len(messages):
+        send_telegram_message(chat_id, "I couldn't find that story anymore — try /refresh for the latest digest.")
+        return
+
+    logging.info("Sending story detail #%d to %s", index, chat_id)
+    try:
+        send_telegram_message(chat_id, messages[index])
+    except Exception:
+        logging.exception("Failed to send story detail to %s", chat_id)
 
 
 def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
@@ -423,6 +473,12 @@ def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
     if command == "repeat_last":
         repeat_last_news(chat_id, user_text, memory)
         return {"status": "repeated"}
+
+    if command == "detail":
+        index = extract_detail_index(user_text)
+        send_story_detail(chat_id, index, memory)
+        save_conversation_memory(chat_id, user_text, "detail", memory.get("last_news_messages", []))
+        return {"status": "detail_sent"}
 
     save_conversation_memory(chat_id, user_text, "help", memory.get("last_news_messages", []))
     send_telegram_message_with_keyboard(chat_id, TELEGRAM_HELP_MESSAGE)
@@ -674,26 +730,54 @@ def build_briefing_message(item: Dict[str, Any], ai_brief: str) -> str:
     )
 
 
+def extract_viral_score(ai_brief: str) -> str:
+    match = re.search(r"viral score\D{0,10}(\d{1,2})\s*/\s*10", ai_brief, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}/10"
+    return "N/A"
+
+
+def build_digest_message(entries: List[Dict[str, Any]]) -> str:
+    if not entries:
+        return ""
+
+    lines = ["🔥 *NIGERIAN CONTENT DIGEST*", ""]
+    for idx, entry in enumerate(entries, start=1):
+        item = entry["item"]
+        lines.append(f"{idx}. *{item.get('title', 'Untitled')}* — 🔥 {entry['score']}")
+        lines.append(item.get("link", ""))
+        lines.append("")
+
+    lines.append('Reply with a story number (e.g. "3") or "more on 3" for the full brief on any story.')
+    return "\n".join(lines).strip()
+
+
 def broadcast_news() -> None:
     logging.info("Starting broadcast pipeline")
-    messages = generate_briefing_messages()
+    briefing = generate_briefing()
+    digest = briefing["digest"]
 
+    if not digest:
+        logging.info("No briefing content generated; skipping broadcast")
+        return
+
+    combined = [digest] + briefing["details"]
     subscribers = get_active_subscribers()
-    logging.info("Broadcasting %d messages to %d active subscribers", len(messages), len(subscribers))
+    logging.info("Broadcasting digest to %d active subscribers", len(subscribers))
 
     for subscriber in subscribers:
         chat_id = subscriber["chat_id"]
-        for text in messages:
-            try:
-                send_telegram_message(chat_id, text)
-                time.sleep(1)
-            except Exception:
-                logging.exception("Failed to send Telegram message to %s", chat_id)
+        try:
+            send_telegram_message(chat_id, digest)
+            save_conversation_memory(chat_id, "", "digest", combined)
+            time.sleep(1)
+        except Exception:
+            logging.exception("Failed to send Telegram message to %s", chat_id)
 
     logging.info("Broadcast pipeline finished")
 
 
-def generate_briefing_messages() -> List[str]:
+def generate_briefing() -> Dict[str, Any]:
     items: List[Dict[str, Any]] = []
 
     for feed_url in NEWS_RSS_FEEDS:
@@ -718,16 +802,18 @@ def generate_briefing_messages() -> List[str]:
     sorted_items = sort_items(unique_items)
     top_items = limit_top_items(sorted_items, max_items=10)
 
-    messages = []
+    details = []
+    digest_entries = []
     for item in top_items:
         try:
             ai_brief = evaluate_item_with_groq(item)
         except Exception:
             logging.exception("Failed to evaluate item with Groq")
             ai_brief = "No brief generated."
-        messages.append(build_briefing_message(item, ai_brief))
+        details.append(build_briefing_message(item, ai_brief))
+        digest_entries.append({"item": item, "score": extract_viral_score(ai_brief)})
 
-    return messages
+    return {"digest": build_digest_message(digest_entries), "details": details}
 
 
 @app.route("/telegram_webhook", methods=["POST"])
