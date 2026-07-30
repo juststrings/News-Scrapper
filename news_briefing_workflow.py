@@ -11,6 +11,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
 
 import feedparser
+from bs4 import BeautifulSoup
 import requests
 from flask import Flask, jsonify, request
 from requests import Response
@@ -58,6 +59,11 @@ NITTER_INSTANCES = [
 ]
 
 X_SEARCH_QUERY = os.getenv("X_SEARCH_QUERY", '"Nigeria" min_faves:50 -filter:replies')
+
+X_DDG_SEARCH_QUERY = os.getenv(
+    "X_DDG_SEARCH_QUERY",
+    '(Nigeria OR Nigerian) (politics OR trending OR reacts OR breaking) (site:twitter.com OR site:x.com)',
+)
 
 TELEGRAM_SUBSCRIBE_MESSAGE = (
     "👋 *Welcome to the Nigerian Content Briefing!*\n\n"
@@ -644,7 +650,7 @@ def fetch_google_trends(url: str) -> List[Dict[str, Any]]:
     return items
 
 
-def fetch_x_posts() -> List[Dict[str, Any]]:
+def fetch_x_posts_nitter() -> List[Dict[str, Any]]:
     logging.info("Fetching X/Twitter posts via Nitter RSS")
     last_error: Optional[Exception] = None
 
@@ -683,6 +689,56 @@ def fetch_x_posts() -> List[Dict[str, Any]]:
 
     logging.error("All Nitter instances failed for X/Twitter fetch: %s", last_error)
     return []
+
+
+def fetch_x_search_posts(query: str) -> List[Dict[str, Any]]:
+    logging.info("Searching X/Twitter posts via DuckDuckGo: %s", query)
+    response = SESSION.post(
+        "https://html.duckduckgo.com/html/",
+        data={"q": query},
+        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, "html.parser")
+
+    items: List[Dict[str, Any]] = []
+    for result in soup.select(".result"):
+        if "result--ad" in (result.get("class") or []):
+            continue
+
+        link_tag = result.select_one(".result__a")
+        if not link_tag or not link_tag.get("href"):
+            continue
+
+        link = link_tag["href"]
+        if "/status/" not in link or ("twitter.com" not in link and "x.com" not in link):
+            continue
+
+        title = link_tag.get_text(strip=True)
+        snippet_tag = result.select_one(".result__snippet")
+        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
+
+        handle_match = re.search(r"(?:twitter|x)\.com/([^/]+)/status/", link)
+        handle = handle_match.group(1) if handle_match else ""
+
+        likes_match = re.search(r"([\d,]+)\s*likes?", snippet, re.IGNORECASE)
+        likes = int(likes_match.group(1).replace(",", "")) if likes_match else 0
+        replies_match = re.search(r"([\d,]+)\s*repl", snippet, re.IGNORECASE)
+        replies = int(replies_match.group(1).replace(",", "")) if replies_match else 0
+
+        items.append(
+            {
+                "full_text": snippet or title,
+                "url": link,
+                "author": {"userName": handle},
+                "likeCount": likes,
+                "retweetCount": replies,
+            }
+        )
+
+    logging.info("Found %d X/Twitter posts via DuckDuckGo search", len(items))
+    return items
 
 
 def parse_datetime(value: Any) -> datetime.datetime:
@@ -920,9 +976,14 @@ def generate_briefing() -> Dict[str, Any]:
             logging.exception("Failed to fetch Reddit feed %s", reddit_url)
 
     try:
-        items.extend(fetch_x_posts())
+        items.extend(fetch_x_posts_nitter())
     except Exception:
-        logging.exception("Failed to fetch X/Twitter posts")
+        logging.exception("Failed to fetch X/Twitter posts via Nitter")
+
+    try:
+        items.extend(fetch_x_search_posts(X_DDG_SEARCH_QUERY))
+    except Exception:
+        logging.exception("Failed to fetch X/Twitter posts via DuckDuckGo search")
 
     try:
         items.extend(fetch_google_trends(GOOGLE_TRENDS_NG_URL))
