@@ -138,14 +138,74 @@ def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown")
         response.raise_for_status()
 
 
-def parse_command(message: Dict[str, Any]) -> str:
+def classify_message_intent(message: Dict[str, Any]) -> str:
     text = str(message.get("text", "")).strip()
     lower = text.lower()
-    if lower.startswith("/stop"):
+
+    if not lower:
+        return "help"
+
+    if lower.startswith("/start") or any(
+        phrase in lower
+        for phrase in (
+            "subscribe",
+            "sign me up",
+            "join",
+            "start updates",
+        )
+    ):
+        return "start"
+
+    if lower.startswith("/stop") or any(
+        phrase in lower
+        for phrase in (
+            "unsubscribe",
+            "stop updates",
+            "pause",
+            "cancel",
+            "unsubscribe me",
+        )
+    ):
         return "stop"
+
     if lower.startswith("/help"):
         return "help"
-    return "start"
+
+    if any(
+        phrase in lower
+        for phrase in (
+            "refresh",
+            "latest news",
+            "news update",
+            "current news",
+            "today's news",
+            "today news",
+            "what's new",
+            "what is new",
+            "send news",
+            "show news",
+            "give me news",
+            "briefing",
+            "headlines",
+            "latest briefing",
+        )
+    ):
+        return "refresh"
+
+    return "help"
+
+
+def build_news_refresh_message(messages: List[str]) -> str:
+    if not messages:
+        return "No fresh news items were found right now. Please try again later."
+
+    return "\n\n".join(messages)
+
+
+def send_latest_news(chat_id: str) -> None:
+    logging.info("Sending latest news refresh to %s", chat_id)
+    messages = generate_briefing_messages()
+    send_telegram_message(chat_id, build_news_refresh_message(messages))
 
 
 def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
@@ -159,7 +219,7 @@ def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
     if not chat_id:
         return {"status": "invalid"}
 
-    command = parse_command(message)
+    command = classify_message_intent(message)
     first_name = str(sender.get("first_name") or chat.get("first_name") or "")
     username = str(sender.get("username") or chat.get("username") or "")
 
@@ -177,7 +237,12 @@ def handle_telegram_update(update: Dict[str, Any]) -> Dict[str, Any]:
         send_telegram_message(chat_id, TELEGRAM_HELP_MESSAGE)
         return {"status": "help_sent"}
 
-    return {"status": "unknown_command"}
+    if command == "refresh":
+        send_latest_news(chat_id)
+        return {"status": "refreshed"}
+
+    send_telegram_message(chat_id, TELEGRAM_HELP_MESSAGE)
+    return {"status": "help_sent"}
 
 
 def get_telegram_updates(offset: Optional[int] = None, timeout: int = 60) -> Dict[str, Any]:
@@ -427,6 +492,24 @@ def build_briefing_message(item: Dict[str, Any], ai_brief: str) -> str:
 
 def broadcast_news() -> None:
     logging.info("Starting broadcast pipeline")
+    messages = generate_briefing_messages()
+
+    subscribers = get_active_subscribers()
+    logging.info("Broadcasting %d messages to %d active subscribers", len(messages), len(subscribers))
+
+    for subscriber in subscribers:
+        chat_id = subscriber["chat_id"]
+        for text in messages:
+            try:
+                send_telegram_message(chat_id, text)
+                time.sleep(1)
+            except Exception:
+                logging.exception("Failed to send Telegram message to %s", chat_id)
+
+    logging.info("Broadcast pipeline finished")
+
+
+def generate_briefing_messages() -> List[str]:
     items: List[Dict[str, Any]] = []
 
     for feed_url in NEWS_RSS_FEEDS:
@@ -460,19 +543,7 @@ def broadcast_news() -> None:
             ai_brief = "No brief generated."
         messages.append(build_briefing_message(item, ai_brief))
 
-    subscribers = get_active_subscribers()
-    logging.info("Broadcasting %d messages to %d active subscribers", len(messages), len(subscribers))
-
-    for subscriber in subscribers:
-        chat_id = subscriber["chat_id"]
-        for text in messages:
-            try:
-                send_telegram_message(chat_id, text)
-                time.sleep(1)
-            except Exception:
-                logging.exception("Failed to send Telegram message to %s", chat_id)
-
-    logging.info("Broadcast pipeline finished")
+    return messages
 
 
 @app.route("/telegram_webhook", methods=["POST"])
