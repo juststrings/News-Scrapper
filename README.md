@@ -38,7 +38,6 @@ copy .env.example .env
 
 ```powershell
 $env:TELEGRAM_BOT_TOKEN = "your_telegram_bot_token"
-$env:APIFY_BEARER_TOKEN = "your_apify_bearer_token"
 $env:GROQ_API_KEY = "your_groq_api_key"
 ```
 
@@ -85,11 +84,12 @@ python news_briefing_workflow.py scheduler
   - Vanguard RSS
   - Daily Post RSS
   - Reddit r/Nigeria and r/NigeriaTech
-  - X/Twitter via Apify scraper
+  - X/Twitter via Nitter RSS (`NITTER_INSTANCES` env var, tried in order until one responds)
 - Briefs are generated using Groq AI and sent as Markdown-formatted Telegram messages.
 
 ## Customization
 
 - Update `NEWS_RSS_FEEDS` and `REDDIT_FEEDS` directly in `news_briefing_workflow.py`.
 - Modify `TELEGRAM_SUBSCRIBE_MESSAGE`, `TELEGRAM_UNSUBSCRIBE_MESSAGE`, and `TELEGRAM_HELP_MESSAGE` to change bot responses.
-- Adjust `APIFY_X_SCRAPER_URL` or `evaluate_item_with_groq()` if you switch providers.
+- Adjust `NITTER_INSTANCES` / `X_SEARCH_QUERY` or `evaluate_item_with_groq()` if you switch providers.
+- Public Nitter instances are unofficial and go down or get rate-limited without notice; if X/Twitter items stop appearing, check the Railway logs for "Nitter instance ... failed" and update `NITTER_INSTANCES` to a currently working instance (or your own self-hosted one).

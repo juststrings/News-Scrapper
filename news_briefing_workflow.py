@@ -22,7 +22,6 @@ logging.basicConfig(
 
 SUBSCRIBER_DB = os.getenv("SUBSCRIBER_DB", "subscribers.db")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-APIFY_BEARER_TOKEN = os.getenv("APIFY_BEARER_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/"
@@ -46,9 +45,18 @@ REDDIT_FEEDS = [
     "https://www.reddit.com/r/NigeriaTech/hot.json?limit=10",
 ]
 
-APIFY_X_SCRAPER_URL = (
-    "https://api.apify.com/v2/acts/apidojo~twitter-scraper-lite/run-sync-get-dataset-items"
-)
+GOOGLE_TRENDS_NG_URL = "https://trends.google.com/trending/rss?geo=NG"
+
+NITTER_INSTANCES = [
+    instance.strip().rstrip("/")
+    for instance in os.getenv(
+        "NITTER_INSTANCES",
+        "https://nitter.net,https://nitter.poast.org,https://xcancel.com",
+    ).split(",")
+    if instance.strip()
+]
+
+X_SEARCH_QUERY = os.getenv("X_SEARCH_QUERY", '"Nigeria" min_faves:50 -filter:replies')
 
 TELEGRAM_SUBSCRIBE_MESSAGE = (
     "👋 *Welcome to the Nigerian Content Briefing!*\n\n"
@@ -537,28 +545,76 @@ def fetch_reddit_posts(url: str) -> List[Dict[str, Any]]:
     return items
 
 
-def fetch_x_posts() -> List[Dict[str, Any]]:
-    logging.info("Fetching X/Twitter posts from Apify")
-    if not APIFY_BEARER_TOKEN:
-        raise RuntimeError("APIFY_BEARER_TOKEN is not set")
-
-    headers = {
-        "Authorization": f"Bearer {APIFY_BEARER_TOKEN}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "searchTerms": ["\"Nigeria\" min_faves:50 -filter:replies"],
-        "sort": "Latest",
-        "maxItems": 10,
-    }
-    response = SESSION.post(APIFY_X_SCRAPER_URL, headers=headers, json=payload, timeout=60)
+def fetch_google_trends(url: str) -> List[Dict[str, Any]]:
+    logging.info("Fetching Google Trends feed %s", url)
+    response = SESSION.get(url, timeout=20)
     response.raise_for_status()
-    data = response.json()
+    feed = feedparser.parse(response.content)
 
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and data.get("items"):
-        return data.get("items", [])
+    items: List[Dict[str, Any]] = []
+    for entry in feed.entries:
+        trend_title = str(entry.get("title", "")).strip()
+        if not trend_title:
+            continue
+
+        news_title = str(entry.get("ht_news_item_title", "")).strip()
+        news_url = str(entry.get("ht_news_item_url", "")).strip()
+        traffic_match = re.search(r"(\d+)", str(entry.get("ht_approx_traffic", "")))
+        traffic = int(traffic_match.group(1)) if traffic_match else 0
+
+        items.append(
+            {
+                "title": f"Trending in Nigeria: {trend_title}",
+                "content": news_title or trend_title,
+                "link": news_url or entry.get("link", ""),
+                "source": "Google Trends (NG)",
+                "published": entry.get("published", ""),
+                "trend_traffic": traffic,
+            }
+        )
+
+    logging.info("Found %d Google Trends items from %s", len(items), url)
+    return items
+
+
+def fetch_x_posts() -> List[Dict[str, Any]]:
+    logging.info("Fetching X/Twitter posts via Nitter RSS")
+    last_error: Optional[Exception] = None
+
+    for instance in NITTER_INSTANCES:
+        url = f"{instance}/search/rss"
+        try:
+            response = SESSION.get(url, params={"f": "tweets", "q": X_SEARCH_QUERY}, timeout=20)
+            response.raise_for_status()
+            feed = feedparser.parse(response.content)
+            if not feed.entries:
+                logging.info("Nitter instance %s returned no entries", instance)
+                continue
+
+            items = []
+            for entry in feed.entries:
+                link = entry.get("link", "")
+                handle_match = re.search(r"/([^/]+)/status/", link)
+                handle = handle_match.group(1) if handle_match else ""
+                items.append(
+                    {
+                        "full_text": entry.get("title", "") or entry.get("summary", ""),
+                        "url": link,
+                        "author": {"userName": handle},
+                        "createdAt": entry.get("published", ""),
+                        "likeCount": 0,
+                        "retweetCount": 0,
+                    }
+                )
+
+            logging.info("Fetched %d tweets from Nitter instance %s", len(items), instance)
+            return items
+        except Exception as exc:
+            last_error = exc
+            logging.warning("Nitter instance %s failed: %s", instance, exc)
+            continue
+
+    logging.error("All Nitter instances failed for X/Twitter fetch: %s", last_error)
     return []
 
 
@@ -619,6 +675,10 @@ def normalize_item(item: Dict[str, Any]) -> Dict[str, Any]:
         retweets = int(item.get("retweetCount") or 0)
         engagement = f"Likes: {likes} | Retweets: {retweets}"
         engagement_score = likes + retweets * 2
+    elif item.get("trend_traffic") is not None:
+        traffic = int(item.get("trend_traffic") or 0)
+        engagement = f"Search interest: {traffic}+"
+        engagement_score = traffic
     else:
         engagement = "N/A"
         engagement_score = 0
@@ -796,6 +856,11 @@ def generate_briefing() -> Dict[str, Any]:
         items.extend(fetch_x_posts())
     except Exception:
         logging.exception("Failed to fetch X/Twitter posts")
+
+    try:
+        items.extend(fetch_google_trends(GOOGLE_TRENDS_NG_URL))
+    except Exception:
+        logging.exception("Failed to fetch Google Trends feed")
 
     normalized = [normalize_item(item) for item in items]
     unique_items = remove_duplicates(normalized)
