@@ -1,0 +1,462 @@
+{
+  "name": "Nigerian Briefing - Subscriber Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "471132c9-bd69-4af8-ba52-85226f1d758b",
+      "name": "On Telegram Message",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.5,
+      "position": [
+        0,
+        192
+      ],
+      "webhookId": "2023e573-60ad-4620-909f-d38495d8f418",
+      "credentials": {
+        "telegramApi": {
+          "id": "csQnCIegnGm1sT7w",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const msg = ($json.message) || {};\nconst chat = msg.chat || {};\nconst from = msg.from || {};\nconst text = String(msg.text || '').trim();\nconst lower = text.toLowerCase();\n\nlet command;\nif (lower.startsWith('/stop')) {\n  command = 'stop';\n} else if (lower.startsWith('/help')) {\n  command = 'help';\n} else {\n  command = 'start';\n}\n\nreturn {\n  chat_id: String(chat.id || from.id || ''),\n  first_name: from.first_name || chat.first_name || '',\n  username: from.username || chat.username || '',\n  text,\n  command,\n};"
+      },
+      "id": "c1d8d1c4-27b8-4b6d-b2d2-bbd988fad3d1",
+      "name": "Parse Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-start",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "start",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-stop",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "stop",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-help",
+                    "leftValue": "={{ $json.command }}",
+                    "rightValue": "help",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5f809864-97c9-4b5b-abc5-735dc36dff5c",
+      "name": "Route Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        448,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "bijrHipx5V5ztpwP",
+          "cachedResultName": "Telegram Subscribers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "keyValue": "={{ $json.chat_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "chat_id"
+          ],
+          "value": {
+            "chat_id": "={{ $json.chat_id }}",
+            "first_name": "={{ $json.first_name }}",
+            "username": "={{ $json.username }}",
+            "status": "active",
+            "subscribed_at": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "first_name",
+              "displayName": "first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "username",
+              "displayName": "username",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "subscribed_at",
+              "displayName": "subscribed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "df5a41b0-b654-463a-941e-7e1aa3b425ef",
+      "name": "Add / Reactivate Subscriber",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse Command').item.json.chat_id }}",
+        "text": "👋 *Welcome to the Nigerian Content Briefing!*\n\nYou're now subscribed. Every few hours I scan Nigerian news (Punch, Premium Times, Vanguard, Daily Post), Reddit (r/Nigeria, r/NigeriaTech) and X/Twitter, then send you AI-scored *content briefings* — each with a viral score, a summary, community sentiment, and 2 ready-to-use video reaction hooks.\n\n📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message again\n\nSit tight — your first briefing will arrive on the next scheduled run. 🔥",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "a9095a2b-962a-4a27-a33b-e676e1448e69",
+      "name": "Confirm Subscribe",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        0
+      ],
+      "webhookId": "f0300662-a133-4d0a-b82c-035d3885103a",
+      "credentials": {
+        "telegramApi": {
+          "id": "csQnCIegnGm1sT7w",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "bijrHipx5V5ztpwP",
+          "cachedResultName": "Telegram Subscribers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "chat_id",
+              "keyValue": "={{ $json.chat_id }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "matchingColumns": [
+            "chat_id"
+          ],
+          "value": {
+            "chat_id": "={{ $json.chat_id }}",
+            "first_name": "={{ $json.first_name }}",
+            "username": "={{ $json.username }}",
+            "status": "unsubscribed",
+            "subscribed_at": "={{ $now.toISO() }}"
+          },
+          "schema": [
+            {
+              "id": "chat_id",
+              "displayName": "chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "first_name",
+              "displayName": "first_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "username",
+              "displayName": "username",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "subscribed_at",
+              "displayName": "subscribed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6d2fb511-907a-4498-883e-4147e36876dd",
+      "name": "Mark Unsubscribed",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        672,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse Command').item.json.chat_id }}",
+        "text": "🛑 You have been unsubscribed from the Nigerian Content Briefing. Send /start anytime to rejoin.",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "b269beba-4f72-4e4e-9bce-9b57d7ca8030",
+      "name": "Confirm Unsubscribe",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        896,
+        192
+      ],
+      "webhookId": "29dfd64c-e332-4e0d-8b0a-e1f210db0cb4",
+      "credentials": {
+        "telegramApi": {
+          "id": "csQnCIegnGm1sT7w",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Parse Command').item.json.chat_id }}",
+        "text": "ℹ️ *Nigerian Content Briefing — Help*\n\nI deliver AI-scored content briefings from Nigerian news, Reddit and X/Twitter, built for content creators looking for reaction-video ideas.\n\n📋 *Commands*\n/start — subscribe (or resubscribe)\n/stop — pause briefings\n/help — show this message",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "af16b5a6-3eb9-427a-a9c0-50a9cdebd67e",
+      "name": "Send Help",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        672,
+        384
+      ],
+      "webhookId": "901415bd-9f3f-4e74-a36f-fd08fe216f17",
+      "credentials": {
+        "telegramApi": {
+          "id": "csQnCIegnGm1sT7w",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "On Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Parse Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Command": {
+      "main": [
+        [
+          {
+            "node": "Route Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Command": {
+      "main": [
+        [
+          {
+            "node": "Add / Reactivate Subscriber",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Unsubscribed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Help",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add / Reactivate Subscriber": {
+      "main": [
+        [
+          {
+            "node": "Confirm Subscribe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Unsubscribed": {
+      "main": [
+        [
+          {
+            "node": "Confirm Unsubscribe",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "4cde930c-6bb4-4136-8ac6-1b98fb252e7e",
+  "meta": {
+    "instanceId": "f35ca4f0f3b169cad287ac55803a0c675256c52ad29704ed7dbdd57436ecf01c"
+  },
+  "nodeGroups": [],
+  "id": "hUaMyQH87LGRlLV5",
+  "tags": []
+}

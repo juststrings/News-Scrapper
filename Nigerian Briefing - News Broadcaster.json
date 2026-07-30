@@ -1,0 +1,625 @@
+{
+  "name": "Nigerian Briefing - News Broadcaster",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      },
+      "id": "a0c839f9-a74b-4877-a5bc-585fd97931bd",
+      "name": "Every 4 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://rss.punchng.com/v1/category/latest_news",
+        "options": {}
+      },
+      "id": "616a2df2-bf05-4922-a7d4-d2588f1b2f7c",
+      "name": "News RSS (Punch)",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 7
+      },
+      "id": "1ed18ed9-6d05-4822-8141-9967fb4dab3e",
+      "name": "Merge All Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        672,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.premiumtimesng.com/feed",
+        "options": {}
+      },
+      "id": "dc6d25de-52e2-456e-81d9-9fe0a06df571",
+      "name": "News RSS (Premium Times)",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.vanguardngr.com/feed/",
+        "options": {}
+      },
+      "id": "41d52fa9-d790-4d45-a07d-15ad4af0bbb6",
+      "name": "News RSS (Vanguard)",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://dailypost.ng/feed/",
+        "options": {}
+      },
+      "id": "7b91f122-e404-4f08-a6a5-f0c57fb6dd15",
+      "name": "News RSS (Daily Post)",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        448,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/Nigeria/hot.json?limit=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n:nigeria.content.briefing:v1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "15bcd5dd-ab1f-4524-a698-315d744dac38",
+      "name": "Reddit: r/Nigeria",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        768
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const children = (item.json && item.json.data && item.json.data.children) || [];\n  for (const child of children) {\n    if (child && child.data) {\n      out.push({ json: child.data });\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "a29ca13f-938d-4458-ad37-e4cc194504da",
+      "name": "Extract Reddit Posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/NigeriaTech/hot.json?limit=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n:nigeria.content.briefing:v1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "4eb73299-025e-4244-b56d-dc630d0c9efc",
+      "name": "Reddit: r/NigeriaTech",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        960
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const children = (item.json && item.json.data && item.json.data.children) || [];\n  for (const child of children) {\n    if (child && child.data) {\n      out.push({ json: child.data });\n    }\n  }\n}\nreturn out;"
+      },
+      "id": "bd90aa2f-abdf-4ec9-89f7-abe1cd15d0d8",
+      "name": "Extract Reddit Posts (Tech)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/apidojo~twitter-scraper-lite/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"searchTerms\": [\n    \"\\\"Nigeria\\\" min_faves:50 -filter:replies\"\n  ],\n  \"sort\": \"Latest\",\n  \"maxItems\": 10\n}",
+        "options": {
+          "response": {
+            "response": {}
+          }
+        }
+      },
+      "id": "389071e8-3700-431e-9512-c7d013e24dc6",
+      "name": "X (Apify Scraper)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        1152
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "6khpo6AFS3JQzaee",
+          "name": "Bearer Auth account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const item of $input.all()) {\n  const t = item.json || {};\n  // Keep only real tweet objects; drop error/pass-through items.\n  if (t.full_text !== undefined || (typeof t.url === 'string' && (t.url.includes('x.com') || t.url.includes('twitter.com')))) {\n    out.push({ json: t });\n  }\n}\nreturn out;"
+      },
+      "id": "75ef8123-cc9d-43dd-88a5-0a4f6ad45bbb",
+      "name": "Extract Tweets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Universal schema normalizer across News (RSS), Reddit and X (Apify)\nconst item = $json;\n\nconst isReddit = item.subreddit !== undefined || item.permalink !== undefined;\nconst linkStr = String(item.url || item.link || '');\nconst isTweet = item.full_text !== undefined\n  || linkStr.includes('x.com')\n  || linkStr.includes('twitter.com');\n\nlet source;\nif (isReddit) {\n  source = 'Reddit (r/' + item.subreddit + ')';\n} else if (isTweet) {\n  const handle = item.author && item.author.userName ? '@' + item.author.userName : '';\n  source = ('X / Twitter ' + handle).trim();\n} else {\n  source = item.creator || 'News RSS (Punch)';\n}\n\nlet link;\nif (isReddit) {\n  link = item.permalink ? 'https://reddit.com' + item.permalink : (item.url || '');\n} else {\n  link = item.link || item.url || '';\n}\n\nconst content = item.selftext\n  || item.contentSnippet\n  || item.content\n  || item.full_text\n  || item.text\n  || item.title\n  || 'No detailed text';\n\nlet engagement;\nif (isReddit) {\n  engagement = 'Upvotes: ' + (item.ups || 0) + ' | Comments: ' + (item.num_comments || 0);\n} else if (isTweet) {\n  engagement = 'Likes: ' + (item.likeCount || 0) + ' | Retweets: ' + (item.retweetCount || 0);\n} else {\n  engagement = 'N/A';\n}\n\nreturn {\n  title: item.title || item.text || item.full_text || 'Nigerian Hot Topic',\n  content,\n  link,\n  source,\n  engagement,\n};"
+      },
+      "id": "4e45e6ed-f67d-44ea-a386-e15e26e0f9eb",
+      "name": "Standardize JSON Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "compare": "selectedFields",
+        "fieldsToCompare": "link",
+        "options": {}
+      },
+      "id": "940ed210-65a1-4038-9e6e-15a69e4a0f15",
+      "name": "Remove Duplicates",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": 10
+      },
+      "id": "d86e094c-9620-4038-b30e-ce409eaeaabd",
+      "name": "Limit Top Items",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        1344,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"llama-3.3-70b-versatile\", temperature: 0.7, messages: [ { role: \"system\", content: \"You are an elite content research strategist for a digital content creator. Evaluate the item for video reaction potential. Rate viral score (1-10), summarize the main points, highlight community reaction/sentiment, and provide 2 sharp video reaction hooks.\" }, { role: \"user\", content: \"Source: \" + $json.source + \"\\nEngagement: \" + $json.engagement + \"\\nTitle: \" + $json.title + \"\\nContent: \" + $json.content + \"\\nLink: \" + $json.link } ] }) }}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 5,
+              "batchInterval": 12000
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "030f08b1-e185-4d56-b19b-0e4a8b221161",
+      "name": "Groq AI Reaction Evaluator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        576
+      ],
+      "credentials": {
+        "groqApi": {
+          "id": "d8GJZAXgBSRAQf47",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const src = $('Remove Duplicates').item.json;\nconst brief = ($json.choices && $json.choices[0] && $json.choices[0].message && $json.choices[0].message.content) || 'No brief generated.';\n\nconst text = '🔥 *NIGERIAN CONTENT BRIEFING*\\n\\n'\n  + '📌 *Source:* ' + (src.source || 'Unknown') + '\\n'\n  + '📊 *Engagement:* ' + (src.engagement || 'N/A') + '\\n'\n  + '🔗 *Link:* ' + (src.link || '') + '\\n\\n'\n  + '🧠 *AI Strategy Brief:*\\n' + brief;\n\nreturn { text };"
+      },
+      "id": "7dac71a0-6bb4-490a-85ee-6c07adf049e8",
+      "name": "Build Briefing Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "qpAuXr4x1PCkiTY7",
+          "cachedResultName": "Telegram Subscribers"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "keyValue": "active"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "9a4b13ff-8829-4f02-a671-364302816e49",
+      "name": "Get Active Subscribers",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2016,
+        576
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const messages = $('Build Briefing Message').all();\nconst subscribers = $input.all();\nconst out = [];\n\nfor (const sub of subscribers) {\n  const chatId = String((sub.json && sub.json.chat_id) || '');\n  if (!chatId) continue;\n  for (const m of messages) {\n    out.push({ json: { chat_id: chatId, text: (m.json && m.json.text) || '' } });\n  }\n}\n\nreturn out;"
+      },
+      "id": "0bb020d1-501b-4f1f-a5a6-d48d5fb2b8f8",
+      "name": "Fan Out to Subscribers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "id": "fbbc6ec2-1519-4437-9134-f36ca9005cc0",
+      "name": "Broadcast to Subscribers",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2464,
+        576
+      ],
+      "webhookId": "85e668cf-ec33-4076-8f51-7f52103be9eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "0GB3565Pfr6yGdrJ",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Every 4 Hours": {
+      "main": [
+        [
+          {
+            "node": "News RSS (Punch)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "News RSS (Premium Times)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "News RSS (Vanguard)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "News RSS (Daily Post)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reddit: r/Nigeria",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reddit: r/NigeriaTech",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "X (Apify Scraper)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "News RSS (Punch)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge All Sources": {
+      "main": [
+        [
+          {
+            "node": "Standardize JSON Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "News RSS (Premium Times)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "News RSS (Vanguard)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "News RSS (Daily Post)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Reddit: r/Nigeria": {
+      "main": [
+        [
+          {
+            "node": "Extract Reddit Posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Reddit Posts": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Reddit: r/NigeriaTech": {
+      "main": [
+        [
+          {
+            "node": "Extract Reddit Posts (Tech)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Reddit Posts (Tech)": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "X (Apify Scraper)": {
+      "main": [
+        [
+          {
+            "node": "Extract Tweets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Tweets": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Standardize JSON Schema": {
+      "main": [
+        [
+          {
+            "node": "Remove Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remove Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Limit Top Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit Top Items": {
+      "main": [
+        [
+          {
+            "node": "Groq AI Reaction Evaluator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq AI Reaction Evaluator": {
+      "main": [
+        [
+          {
+            "node": "Build Briefing Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Briefing Message": {
+      "main": [
+        [
+          {
+            "node": "Get Active Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Fan Out to Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fan Out to Subscribers": {
+      "main": [
+        [
+          {
+            "node": "Broadcast to Subscribers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "1ff1a308-08e2-48d4-b6e9-58ade78c88c5",
+  "meta": {
+    "instanceId": "0e5b9c79d816384b831386c8782425165ef515d331c33cf6653877fb0fef27ee"
+  },
+  "nodeGroups": [],
+  "id": "cJgznjPvOQsIga1s",
+  "tags": []
+}
