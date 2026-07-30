@@ -245,39 +245,46 @@ def save_conversation_memory(
     DB_CONN.commit()
 
 
+def _post_telegram_message(payload: Dict[str, Any]) -> None:
+    url = urljoin(TELEGRAM_API_BASE, "sendMessage")
+    response = SESSION.post(url, json=payload, timeout=15)
+    if response.status_code != 200:
+        logging.error("Telegram sendMessage failed %s: %s", response.status_code, response.text)
+        if response.status_code == 400 and "can't parse entities" in response.text and payload.get("parse_mode"):
+            fallback_payload = dict(payload)
+            fallback_payload.pop("parse_mode")
+            _post_telegram_message(fallback_payload)
+            return
+        response.raise_for_status()
+
+
 def send_telegram_message(chat_id: str, text: str, parse_mode: str = "Markdown") -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
 
-    url = urljoin(TELEGRAM_API_BASE, "sendMessage")
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": parse_mode,
-        "disable_web_page_preview": False,
-    }
-    response = SESSION.post(url, json=payload, timeout=15)
-    if response.status_code != 200:
-        logging.error("Telegram sendMessage failed %s: %s", response.status_code, response.text)
-        response.raise_for_status()
+    _post_telegram_message(
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": False,
+        }
+    )
 
 
 def send_telegram_message_with_keyboard(chat_id: str, text: str, parse_mode: str = "Markdown") -> None:
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
 
-    url = urljoin(TELEGRAM_API_BASE, "sendMessage")
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": parse_mode,
-        "disable_web_page_preview": False,
-        "reply_markup": build_command_keyboard(),
-    }
-    response = SESSION.post(url, json=payload, timeout=15)
-    if response.status_code != 200:
-        logging.error("Telegram sendMessage failed %s: %s", response.status_code, response.text)
-        response.raise_for_status()
+    _post_telegram_message(
+        {
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": False,
+            "reply_markup": build_command_keyboard(),
+        }
+    )
 
 
 def normalize_text(text: str) -> str:
@@ -348,7 +355,10 @@ def send_latest_news(chat_id: str, user_text: str = "") -> List[str]:
         return []
 
     for text in messages:
-        send_telegram_message(chat_id, text)
+        try:
+            send_telegram_message(chat_id, text)
+        except Exception:
+            logging.exception("Failed to send briefing message to %s", chat_id)
         time.sleep(1)
 
     save_conversation_memory(chat_id, user_text, "refresh", messages)
@@ -363,7 +373,10 @@ def repeat_last_news(chat_id: str, user_text: str, memory: Dict[str, Any]) -> No
 
     logging.info("Repeating last news bundle for %s", chat_id)
     for text in last_messages:
-        send_telegram_message(chat_id, text)
+        try:
+            send_telegram_message(chat_id, text)
+        except Exception:
+            logging.exception("Failed to resend briefing message to %s", chat_id)
         time.sleep(1)
 
     save_conversation_memory(chat_id, user_text, "repeat_last", last_messages)
