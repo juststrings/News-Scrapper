@@ -25,6 +25,7 @@ logging.basicConfig(
 SUBSCRIBER_DB = os.getenv("SUBSCRIBER_DB", "subscribers.db")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+APIFY_BEARER_TOKEN = os.getenv("APIFY_BEARER_TOKEN")
 
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -64,6 +65,10 @@ X_DDG_SEARCH_QUERY = os.getenv(
     "X_DDG_SEARCH_QUERY",
     '(Nigeria OR Nigerian) (Tinubu OR APC OR PDP OR INEC OR EFCC OR "National Assembly" OR Naira OR ASUU) '
     '(site:twitter.com OR site:x.com)',
+)
+
+APIFY_X_SCRAPER_URL = (
+    "https://api.apify.com/v2/actors/apidojo~twitter-scraper-lite/run-sync-get-dataset-items"
 )
 
 TELEGRAM_SUBSCRIBE_MESSAGE = (
@@ -742,6 +747,37 @@ def fetch_x_search_posts(query: str) -> List[Dict[str, Any]]:
     return items
 
 
+def fetch_x_posts_apify() -> List[Dict[str, Any]]:
+    logging.info("Fetching X/Twitter posts from Apify")
+    if not APIFY_BEARER_TOKEN:
+        raise RuntimeError("APIFY_BEARER_TOKEN is not set")
+
+    headers = {
+        "Authorization": f"Bearer {APIFY_BEARER_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "searchTerms": [X_SEARCH_QUERY],
+        "sort": "Latest",
+        "maxItems": 10,
+    }
+    response = SESSION.post(APIFY_X_SCRAPER_URL, headers=headers, json=payload, timeout=60)
+    response.raise_for_status()
+    data = response.json()
+
+    if isinstance(data, dict) and data.get("items"):
+        data = data.get("items", [])
+    if not isinstance(data, list):
+        return []
+
+    items = [item for item in data if isinstance(item, dict) and not item.get("demo")]
+    if len(items) != len(data):
+        logging.warning("Apify actor returned demo placeholder items; check account activation/credits")
+
+    logging.info("Fetched %d tweets from Apify", len(items))
+    return items
+
+
 def parse_datetime(value: Any) -> datetime.datetime:
     if isinstance(value, datetime.datetime):
         return value.astimezone(datetime.timezone.utc)
@@ -975,6 +1011,12 @@ def generate_briefing() -> Dict[str, Any]:
             items.extend(fetch_reddit_posts(reddit_url))
         except Exception:
             logging.exception("Failed to fetch Reddit feed %s", reddit_url)
+
+    if APIFY_BEARER_TOKEN:
+        try:
+            items.extend(fetch_x_posts_apify())
+        except Exception:
+            logging.exception("Failed to fetch X/Twitter posts via Apify")
 
     try:
         items.extend(fetch_x_posts_nitter())
